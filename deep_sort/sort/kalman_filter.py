@@ -78,11 +78,11 @@ class KalmanFilter:
         Parameters
         ----------
         mean : ndarray
-            The 8 dimensional mean vector of shape (8, 1) of the object state at the previous
+            The 8 dimensional mean vector of shape (*, 8) of the object state at the previous
             time step.
         covariance : ndarray
             The 8x8 dimensional covariance matrix of the object state at the
-            previous time step.
+            previous time step. which shape is (*, 8, 8)
 
         Returns
         -------
@@ -103,8 +103,8 @@ class KalmanFilter:
             1e-5,
             self._std_weight_velocity]], device=mean.device)
 
-        std_pos *= mean[:, 3]
-        std_vel *= mean[:, 3]
+        std_pos = mean[:, 3:4] * std_pos
+        std_vel = mean[:, 3:4] * std_vel
 
         std_pos[:, 2] = 1e-2
         std_vel[:, 2] = 1e-5

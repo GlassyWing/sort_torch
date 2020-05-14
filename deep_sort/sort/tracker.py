@@ -97,8 +97,20 @@ class Tracker:
 
         This function should be called once every time step, before `update`.
         """
+        track_means = []
+        track_covs = []
         for track in self.tracks:
-            track.predict(self.kf)
+            track_means.append(track.mean)
+            track_covs.append(track.covariance)
+
+        if len(self.tracks) != 0:
+            track_means = torch.cat(track_means, dim=0)
+            track_covs = torch.cat(track_covs, dim=0)
+            updated_means, updated_covs = self.kf.predict(track_means, track_covs)
+
+            for i, track in enumerate(self.tracks):
+                track.predict(updated_means[i].unsqueeze(0),
+                              updated_covs[i].unsqueeze(0))
 
     def update(self, detections):
         """Perform measurement update and track management.
@@ -114,14 +126,32 @@ class Tracker:
             self._match(detections)
 
         # Update track set.
-        for track_idx, detection_idx in matches:
-            track = self.tracks[track_idx]
-            detection = detections[detection_idx]
-            track.update(
-                self.kf, detections[detection_idx])
-            # update payload info
-            if track.payload is None:
-                track.payload = detection.payload
+        if len(matches) != 0:
+            matched_track_means = []
+            matched_track_covs = []
+            matched_measures = []
+
+            for track_idx, detection_idx in matches:
+                track = self.tracks[track_idx]
+                detection = detections[detection_idx]
+                matched_track_means.append(track.mean)
+                matched_track_covs.append(track.covariance)
+                matched_measures.append(detection.to_xyah())
+
+            matched_track_means = torch.cat(matched_track_means, dim=0)
+            matched_track_covs = torch.cat(matched_track_covs, dim=0)
+            matched_measures = torch.stack(matched_measures, dim=0)
+
+            # Make the most of the GPU
+            updated_means, updated_covs = self.kf.update(matched_track_means, matched_track_covs, matched_measures)
+            for i, (track_idx, detection_idx) in enumerate(matches):
+                track = self.tracks[track_idx]
+                detection = detections[detection_idx]
+                track.update(updated_means[i].unsqueeze(0),
+                             updated_covs[i].unsqueeze(0),
+                             detection.feature,
+                             detection.payload)
+
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
         for detection_idx in unmatched_detections:

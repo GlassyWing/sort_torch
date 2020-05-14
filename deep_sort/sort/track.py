@@ -62,8 +62,8 @@ class Track:
 
     def __init__(self, mean, covariance, track_id, n_init, max_age,
                  feature=None, payload=None):
-        self.mean = mean    # (1, 8)
-        self.covariance = covariance   # (1, 8, 8)
+        self.mean = mean  # (1, 8)
+        self.covariance = covariance  # (1, 8, 8)
         self.track_id = track_id
         self.hits = 1
         self.age = 1
@@ -107,40 +107,41 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
-    def predict(self, kf):
+    def predict(self, mean, covariance):
         """Propagate the state distribution to the current time step using a
         Kalman filter prediction step.
 
         Parameters
         ----------
-        kf : kalman_filter.KalmanFilter
-            The Kalman filter.
+        mean : new mean
+        covariance: new covariance
 
         """
-        self.mean, self.covariance = kf.predict(self.mean, self.covariance)
+        self.mean = mean
+        self.covariance = covariance
         self.age += 1
         self.time_since_update += 1
 
-    def update(self, kf, detection):
+    def update(self, mean, covariance, feature, payload=None):
         """Perform Kalman filter measurement update step and update the feature
         cache.
 
         Parameters
         ----------
-        kf : kalman_filter.KalmanFilter
-            The Kalman filter.
-        detection : Detection
-            The associated detection.
-
+        mean : new mean
+        covariance : new covariance
+        feature: new feature to be hold
+        payload: additional payload
         """
-        self.mean, self.covariance = kf.update(
-            self.mean, self.covariance, detection.to_xyah())
-        self.features.append(detection.feature)
 
+        self.mean = mean
+        self.covariance = covariance
+        self.features.append(feature)
         self.hits += 1
         self.time_since_update = 0
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
+        self.payload = payload
 
     def mark_missed(self):
         """Mark this track as missed (no association at the current time step).
