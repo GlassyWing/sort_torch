@@ -56,7 +56,7 @@ class KalmanFilter:
         """
         mean_pos = measurement.to(self._device)
         mean_vel = torch.zeros_like(mean_pos)
-        mean = torch.cat([mean_pos, mean_vel], dim=-1).view(-1, 1)  # (8, 1)
+        mean = torch.cat([mean_pos, mean_vel], dim=-1).view(1, -1)  # (1, 8)
 
         std = torch.tensor([
             2 * self._std_weight_position * measurement[3],
@@ -67,9 +67,9 @@ class KalmanFilter:
             10 * self._std_weight_velocity * measurement[3],
             1e-5,
             10 * self._std_weight_velocity * measurement[3]],
-            device=mean_pos.device)
+            device=measurement.device)
 
-        covariance = torch.diag(torch.pow(std, 2))
+        covariance = torch.diag(torch.pow(std, 2)).unsqueeze(0)  # (1, 8, 8)
         return mean, covariance
 
     def predict(self, mean, covariance):
@@ -91,24 +91,34 @@ class KalmanFilter:
             state. Unobserved velocities are initialized to 0 mean.
 
         """
-        std_pos = torch.tensor([
-            self._std_weight_position * mean[3, 0],
-            self._std_weight_position * mean[3, 0],
+
+        std_pos = torch.tensor([[
+            self._std_weight_position,
+            self._std_weight_position,
             1e-2,
-            self._std_weight_position * mean[3, 0]], device=mean.device)
-        std_vel = torch.tensor([
-            self._std_weight_velocity * mean[3, 0],
-            self._std_weight_velocity * mean[3, 0],
+            self._std_weight_position]], device=mean.device)
+        std_vel = torch.tensor([[
+            self._std_weight_velocity,
+            self._std_weight_velocity,
             1e-5,
-            self._std_weight_velocity * mean[3, 0]], device=mean.device)
+            self._std_weight_velocity]], device=mean.device)
 
-        # (8, 8)
-        motion_cov = torch.diag(torch.pow(torch.cat([std_pos, std_vel], dim=-1), 2))
+        std_pos *= mean[:, 3]
+        std_vel *= mean[:, 3]
 
-        mean = torch.mm(self._motion_mat, mean)  # (8, 1)
-        covariance = torch.chain_matmul(self._motion_mat, covariance, self._motion_mat.t()) + motion_cov
+        std_pos[:, 3] = 1e-2
+        std_vel[:, 3] = 1e-5
 
-        return mean, covariance
+        # (*, 8, 8)
+        motion_cov = torch.diag_embed(torch.pow(torch.cat([std_pos, std_vel], dim=-1), 2))
+        motion_mat_t = self._motion_mat.t()
+
+        mean = torch.matmul(mean, motion_mat_t)  # (*, 8)
+
+        # (*, 8, 8)
+        covariance = torch.matmul(torch.matmul(covariance, motion_mat_t).permute(0, 2, 1), motion_mat_t) \
+            .permute(0, 2, 1)
+        return mean, covariance + motion_cov
 
     def project(self, mean, covariance):
         """Project state distribution to measurement space.
@@ -116,9 +126,9 @@ class KalmanFilter:
         Parameters
         ----------
         mean : ndarray
-            The state's mean vector (8 dimensional array).
+            The state's mean vector (*, 8).
         covariance : ndarray
-            The state's covariance matrix (8x8 dimensional).
+            The state's covariance matrix (*, 8, 8).
 
         Returns
         -------
@@ -127,17 +137,27 @@ class KalmanFilter:
             estimate.
 
         """
-        std = torch.tensor([
-            self._std_weight_position * mean[3, 0],
-            self._std_weight_position * mean[3, 0],
+
+        std = torch.tensor([[
+            self._std_weight_position,
+            self._std_weight_position,
             1e-1,
-            self._std_weight_position * mean[3, 0]], device=mean.device)
+            self._std_weight_position]], device=mean.device)
 
-        # (4, 4)
-        innovation_cov = torch.diag(torch.pow(std, 2))
+        std = mean[:, 3:4] * std    # (*, 4)
+        std[:, 2] = 1e-1  # (*, 4)
 
-        mean = torch.mm(self._update_mat, mean)  # (4, 1)
-        covariance = torch.chain_matmul(self._update_mat, covariance, self._update_mat.t())  # (8, 8)
+        # (*, 4, 4)
+        innovation_cov = torch.diag_embed(std, offset=0, dim1=-2, dim2=-1)
+
+        update_mat_t = self._update_mat.t()
+
+        # (4, 8) dot (*, 8)
+        mean = torch.mm(mean, update_mat_t)  # (*, 4)
+
+        # (*, 4, 4)
+        covariance = torch.matmul(torch.matmul(covariance, update_mat_t).permute(0, 2, 1), update_mat_t).permute(0, 2,
+                                                                                                                 1)
         return mean, covariance + innovation_cov
 
     def update(self, mean, covariance, measurement):
@@ -146,9 +166,9 @@ class KalmanFilter:
         Parameters
         ----------
         mean : ndarray
-            The predicted state's mean vector (8 dimensional).
+            The predicted state's mean vector (*, 8).
         covariance : ndarray
-            The state's covariance matrix (8x8 dimensional).
+            The state's covariance matrix (*,8,8).
         measurement : ndarray
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
@@ -160,16 +180,22 @@ class KalmanFilter:
             Returns the measurement-corrected state distribution.
 
         """
+
         projected_mean, projected_cov = self.project(mean, covariance)
         chol_factor = torch.cholesky(projected_cov, upper=False)
-        kalman_gain = torch.cholesky_solve(torch.mm(covariance, self._update_mat.t()).t(),
+
+        # (*, 8, 4)
+        kalman_gain = torch.cholesky_solve(torch.matmul(covariance, self._update_mat.t()).permute(0, 2, 1),
                                            chol_factor,
-                                           upper=False).t()
+                                           upper=False).permute(0, 2, 1)
 
-        innovation = measurement.view(1, -1) - projected_mean.view(1, -1)
+        # (*, 4)
+        innovation = measurement.view(-1, 4) - projected_mean
 
-        new_mean = mean + torch.mm(innovation, kalman_gain.t()).t()  # (8, 1)
-        new_covariance = covariance - torch.chain_matmul(kalman_gain, projected_cov, kalman_gain.t())  # (8, 8)
+        kalman_gain_t = kalman_gain.permute(0, 2, 1)
+        new_mean = mean + torch.bmm(innovation.unsqueeze(1), kalman_gain_t).view(-1, 8)  # (*, 8)
+        new_covariance = covariance - torch.matmul(torch.matmul(projected_cov, kalman_gain_t).permute(0, 2, 1),
+                                                   kalman_gain_t).permute(0, 2, 1)
 
         return new_mean, new_covariance
 
@@ -183,11 +209,11 @@ class KalmanFilter:
         Parameters
         ----------
         mean : ndarray
-            Mean vector over the state distribution (8 dimensional).
+            Mean vector over the state distribution (n, 8).
         covariance : ndarray
-            Covariance of the state distribution (8x8 dimensional).
+            Covariance of the state distribution (n, 8, 8).
         measurements : ndarray
-            An Nx4 dimensional matrix of N measurements, each in
+            An Mx4 dimensional matrix of M measurements, each in
             format (x, y, a, h) where (x, y) is the bounding box center
             position, a the aspect ratio, and h the height.
         only_position : Optional[bool]
@@ -197,18 +223,26 @@ class KalmanFilter:
         Returns
         -------
         ndarray
-            Returns an array of length N, where the i-th element contains the
+            Returns an matrix of shape N X M, where the i-th row contains the
             squared Mahalanobis distance between (mean, covariance) and
-            `measurements[i]`.
+            `measurements[j]`.
 
         """
         mean, covariance = self.project(mean, covariance)
         if only_position:
-            mean, covariance = mean[:2, :], covariance[:2, :2]
-            measurements = measurements[:, :2]
+            mean, covariance = mean[:, None, :2], covariance[:, :2, :2]
+            measurements = measurements[None, :, :2]
+        else:
+            mean = mean.unsqueeze(1)
+            measurements = measurements.unsqueeze(0)
 
+        # (n, 4, 4)
         cholesky_factor = torch.cholesky(covariance)
-        d = measurements - mean.t()
-        z = torch.triangular_solve(d.t(), cholesky_factor, upper=False)[0]
-        squared_maha = torch.sum(z * z, dim=0)
+        d = - mean + measurements  # (n, m, 4)
+        z = torch.triangular_solve(d.permute(0, 2, 1), cholesky_factor, upper=False)[0]
+        # z = torch.cholesky_solve(d.permute(0, 2, 1),
+        #                          cholesky_factor,
+        #                          upper=False)  # (n, 4, m)
+        squared_maha = torch.sum(z ** 2, dim=1)  # (n, m)
         return squared_maha
+

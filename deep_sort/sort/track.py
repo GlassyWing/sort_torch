@@ -62,8 +62,8 @@ class Track:
 
     def __init__(self, mean, covariance, track_id, n_init, max_age,
                  feature=None, payload=None):
-        self.mean = mean.view(-1, 1)
-        self.covariance = covariance
+        self.mean = mean    # (1, 8)
+        self.covariance = covariance   # (1, 8, 8)
         self.track_id = track_id
         self.hits = 1
         self.age = 1

@@ -177,9 +177,15 @@ def gate_cost_matrix(
     gating_dim = 2 if only_position else 4
     gating_threshold = kalman_filter.chi2inv95[gating_dim]
     measurements = torch.stack([detections[i].to_xyah() for i in detection_indices], dim=0)
+
+    means = []
+    covariances = []
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        gating_distance = kf.gating_distance(
-            track.mean, track.covariance, measurements, only_position)
-        cost_matrix[row, gating_distance > gating_threshold] = gated_cost
+        means.append(track.mean)
+        covariances.append(track.covariance)
+    means = torch.cat(means, dim=0)
+    covariances = torch.cat(covariances, dim=0)
+    gating_distance = kf.gating_distance(means, covariances, measurements, only_position)
+    cost_matrix[gating_distance > gating_threshold] = gated_cost
     return cost_matrix
