@@ -88,7 +88,7 @@ class Track:
             The bounding box.
 
         """
-        ret = self.mean.flatten()[:4].clone()
+        ret = self.mean.flatten()[:4]
         ret[2] *= ret[3]
         ret[:2] -= ret[2:] / 2
         return ret

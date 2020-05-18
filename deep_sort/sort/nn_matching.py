@@ -168,10 +168,8 @@ class NearestNeighborDistanceMetric:
             `targets[i]` and `features[j]`.
 
         """
-        cost_matrix = torch.zeros((len(targets), len(features)),
-                                  dtype=features.dtype,
-                                  device=features.device)
+        cost_matrix = []
         for i, target in enumerate(targets):
-            cost_matrix[i, :] = self._metric(torch.stack(self.samples[target], dim=0),
-                                             features)
-        return cost_matrix
+            cost_matrix.append(self._metric(torch.stack(self.samples[target], dim=0),
+                                            features))
+        return torch.stack(cost_matrix, dim=0)

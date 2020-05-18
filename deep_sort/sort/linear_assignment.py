@@ -178,14 +178,19 @@ def gate_cost_matrix(
     gating_threshold = kalman_filter.chi2inv95[gating_dim]
     measurements = torch.stack([detections[i].to_xyah() for i in detection_indices], dim=0)
 
+    # Combine tensors on cpu
     means = []
     covariances = []
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
-        means.append(track.mean)
-        covariances.append(track.covariance)
-    means = torch.cat(means, dim=0)
-    covariances = torch.cat(covariances, dim=0)
+        means.append(track.mean.cpu())
+        covariances.append(track.covariance.cpu())
+
+    # Then copy to gpu
+    means = torch.cat(means, dim=0).to(measurements.device)
+    covariances = torch.cat(covariances, dim=0).to(measurements.device)
+
+    # The calculation takes place on the GPU
     gating_distance = kf.gating_distance(means, covariances, measurements, only_position)
     cost_matrix[gating_distance > gating_threshold] = gated_cost
     return cost_matrix

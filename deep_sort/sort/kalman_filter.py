@@ -54,11 +54,11 @@ class KalmanFilter:
             to 0 mean.
 
         """
-        mean_pos = measurement.to(self._device)
+        mean_pos = measurement
         mean_vel = torch.zeros_like(mean_pos)
         mean = torch.cat([mean_pos, mean_vel], dim=-1).view(1, -1)  # (1, 8)
 
-        std = torch.tensor([
+        std = torch.tensor([[
             2 * self._std_weight_position * measurement[3],
             2 * self._std_weight_position * measurement[3],
             1e-2,
@@ -66,10 +66,10 @@ class KalmanFilter:
             10 * self._std_weight_velocity * measurement[3],
             10 * self._std_weight_velocity * measurement[3],
             1e-5,
-            10 * self._std_weight_velocity * measurement[3]],
+            10 * self._std_weight_velocity * measurement[3]]],
             device=measurement.device)
 
-        covariance = torch.diag(torch.pow(std, 2)).unsqueeze(0)  # (1, 8, 8)
+        covariance = torch.diag_embed(torch.pow(std, 2))  # (1, 8, 8)
         return mean, covariance
 
     def predict(self, mean, covariance):
