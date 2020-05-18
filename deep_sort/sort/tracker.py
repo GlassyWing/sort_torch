@@ -35,14 +35,14 @@ class Tracker:
 
     """
 
-    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3, use_cuda=False):
+    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3, device="cpu"):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
         self.n_init = n_init
-        self.use_cuda = use_cuda
+        self.device = device
 
-        self.kf = kalman_filter.KalmanFilter(use_cuda=use_cuda)
+        self.kf = kalman_filter.KalmanFilter(device=device)
         self.tracks = []
         self._next_id = 1
 

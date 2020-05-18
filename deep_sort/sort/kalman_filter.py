@@ -19,8 +19,8 @@ chi2inv95 = {
 
 class KalmanFilter:
 
-    def __init__(self, use_cuda=False):
-        self._device = "cpu" if not use_cuda else "cuda:0"
+    def __init__(self, device="cpu"):
+        self._device = device
 
         ndim, dt = 4, 1
         #  Create Kalman filter model matrices (8, 8)
