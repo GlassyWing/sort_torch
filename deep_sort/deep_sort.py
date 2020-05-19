@@ -48,7 +48,7 @@ class DeepSort(object):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
-        bbox_tlwh = bbox_xywh
+        bbox_tlwh = bbox_xywh.to(self.tracker_device)
         detections = [Detection(bbox_tlwh[i], conf, features[i], payload[i]) for i, conf in enumerate(confidences) if
                       conf > self.min_confidence]
 
@@ -121,7 +121,7 @@ class DeepSort(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            features = self.extractor(im_crops)
+            features = self.extractor(im_crops).to(self.tracker_device)
         else:
             features = np.array([])
         return features
