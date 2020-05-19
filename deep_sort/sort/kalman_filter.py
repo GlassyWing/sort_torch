@@ -24,12 +24,14 @@ class KalmanFilter:
 
         ndim, dt = 4, 1
         #  Create Kalman filter model matrices (8, 8)
-        self._motion_mat = torch.eye(2 * ndim, 2 * ndim, device=self._device)
+        self._motion_mat = torch.eye(2 * ndim, 2 * ndim, device=self._device, dtype=torch.float32)
         for i in range(ndim):
             self._motion_mat[i, ndim + i] = dt
 
-        # (4, 8)
-        self._update_mat = torch.eye(ndim, 2 * ndim, device=self._device)
+        self._motion_mat = self._motion_mat.t()
+
+        # (8, 4)
+        self._update_mat = torch.eye(2 * ndim, ndim, device=self._device, dtype=torch.float32)
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
@@ -111,13 +113,12 @@ class KalmanFilter:
 
         # (*, 8, 8)
         motion_cov = torch.diag_embed(torch.pow(torch.cat([std_pos, std_vel], dim=-1), 2))
-        motion_mat_t = self._motion_mat.t()
 
-        mean = torch.matmul(mean, motion_mat_t)  # (*, 8)
+        mean = torch.matmul(mean, self._motion_mat)  # (*, 8)
 
         # (*, 8, 8)
-        covariance = torch.matmul(torch.matmul(covariance.permute(0, 2, 1), motion_mat_t).permute(0, 2, 1),
-                                  motion_mat_t)
+        covariance = torch.matmul(torch.matmul(covariance.permute(0, 2, 1), self._motion_mat).permute(0, 2, 1),
+                                  self._motion_mat)
         return mean, covariance + motion_cov
 
     def project(self, mean, covariance):
@@ -150,14 +151,12 @@ class KalmanFilter:
         # (*, 4, 4)
         innovation_cov = torch.diag_embed(torch.pow(std, 2))
 
-        update_mat_t = self._update_mat.t()
-
         # (4, 8) dot (*, 8)
-        mean = torch.mm(mean, update_mat_t)  # (*, 4)
+        mean = torch.mm(mean, self._update_mat)  # (*, 4)
 
         # (*, 4, 4)
-        covariance = torch.matmul(torch.matmul(covariance.permute(0, 2, 1), update_mat_t).permute(0, 2, 1),
-                                  update_mat_t)
+        covariance = torch.matmul(torch.matmul(covariance.permute(0, 2, 1), self._update_mat).permute(0, 2, 1),
+                                  self._update_mat)
         return mean, covariance + innovation_cov
 
     def update(self, mean, covariance, measurement):
@@ -185,7 +184,7 @@ class KalmanFilter:
         chol_factor = torch.cholesky(projected_cov, upper=False)
 
         # (*, 8, 4)
-        kalman_gain = torch.cholesky_solve(torch.matmul(covariance, self._update_mat.t()).permute(0, 2, 1),
+        kalman_gain = torch.cholesky_solve(torch.matmul(covariance, self._update_mat).permute(0, 2, 1),
                                            chol_factor,
                                            upper=False).permute(0, 2, 1)
 
