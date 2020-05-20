@@ -1,4 +1,5 @@
-import torch
+import tensorflow as tf
+import numpy as np
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -19,19 +20,20 @@ chi2inv95 = {
 
 class KalmanFilter:
 
-    def __init__(self, device="cpu"):
-        self._device = device
+    def __init__(self):
 
         ndim, dt = 4, 1
         #  Create Kalman filter model matrices (8, 8)
-        self._motion_mat = torch.eye(2 * ndim, 2 * ndim, device=self._device, dtype=torch.float32)
+        self._motion_mat = np.eye(2 * ndim, 2 * ndim)
         for i in range(ndim):
             self._motion_mat[i, ndim + i] = dt
 
-        self._motion_mat = self._motion_mat.t()
+        self._motion_mat = tf.constant(self._motion_mat, dtype=tf.float32)
+
+        self._motion_mat = tf.transpose(self._motion_mat)
 
         # (8, 4)
-        self._update_mat = torch.eye(2 * ndim, ndim, device=self._device, dtype=torch.float32)
+        self._update_mat = tf.eye(2 * ndim, ndim, dtype=tf.float32)
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
@@ -56,22 +58,24 @@ class KalmanFilter:
             to 0 mean.
 
         """
-        mean_pos = measurement
-        mean_vel = torch.zeros_like(mean_pos)
-        mean = torch.cat([mean_pos, mean_vel], dim=-1).view(1, -1)  # (1, 8)
+        mean_pos = measurement.numpy()
+        mean_vel = tf.zeros_like(measurement)
+        mean = tf.reshape(tf.concat([mean_pos, mean_vel], -1), (1, -1))  # (1, 8)
 
-        std = torch.tensor([[
-            2 * self._std_weight_position * measurement[3],
-            2 * self._std_weight_position * measurement[3],
-            1e-2,
-            2 * self._std_weight_position * measurement[3],
-            10 * self._std_weight_velocity * measurement[3],
-            10 * self._std_weight_velocity * measurement[3],
-            1e-5,
-            10 * self._std_weight_velocity * measurement[3]]],
-            device=measurement.device)
+        std = tf.constant([
+            [
+                2 * self._std_weight_position * mean_pos[3],
+                2 * self._std_weight_position * mean_pos[3],
+                1e-2,
+                2 * self._std_weight_position * mean_pos[3],
+                10 * self._std_weight_velocity * mean_pos[3],
+                10 * self._std_weight_velocity * mean_pos[3],
+                1e-5,
+                10 * self._std_weight_velocity * mean_pos[3]
+            ]
+        ], dtype=tf.float32)
 
-        covariance = torch.diag_embed(torch.pow(std, 2))  # (1, 8, 8)
+        covariance = tf.linalg.diag(tf.pow(std, 2))  # (1, 8, 8)
         return mean, covariance
 
     def predict(self, mean, covariance):
@@ -94,31 +98,41 @@ class KalmanFilter:
 
         """
 
-        std_pos = torch.tensor([[
+        std_pos = tf.constant([[
             self._std_weight_position,
             self._std_weight_position,
+            0.,
+            self._std_weight_position]], dtype=tf.float32)
+        std_pos_back = tf.constant([[
+            0.,
+            0.,
             1e-2,
-            self._std_weight_position]], device=mean.device)
-        std_vel = torch.tensor([[
+            0.
+        ]], dtype=tf.float32)
+        std_vel = tf.constant([[
             self._std_weight_velocity,
             self._std_weight_velocity,
+            0.,
+            self._std_weight_velocity]], dtype=tf.float32)
+        std_vel_back = tf.constant([[
+            0.,
+            0.,
             1e-5,
-            self._std_weight_velocity]], device=mean.device)
+            0.
+        ]], dtype=tf.float32)
 
-        std_pos = mean[:, 3:4] * std_pos
-        std_vel = mean[:, 3:4] * std_vel
-
-        std_pos[:, 2] = 1e-2
-        std_vel[:, 2] = 1e-5
+        std_pos = mean[:, 3:4] * std_pos + std_pos_back  # (*, 4)
+        std_vel = mean[:, 3:4] * std_vel + std_vel_back  # (*, 4)
 
         # (*, 8, 8)
-        motion_cov = torch.diag_embed(torch.pow(torch.cat([std_pos, std_vel], dim=-1), 2))
+        motion_cov = tf.linalg.diag(tf.pow(tf.concat([std_pos, std_vel], -1), 2))
 
-        mean = torch.matmul(mean, self._motion_mat)  # (*, 8)
+        mean = tf.matmul(mean, self._motion_mat)  # (*, 8)
 
         # (*, 8, 8)
-        covariance = torch.matmul(torch.matmul(covariance.permute(0, 2, 1), self._motion_mat).permute(0, 2, 1),
-                                  self._motion_mat)
+        covariance = tf.matmul(
+            tf.transpose(tf.matmul(tf.transpose(covariance, (0, 2, 1)), self._motion_mat), (0, 2, 1)),
+            self._motion_mat)
         return mean, covariance + motion_cov
 
     def project(self, mean, covariance):
@@ -139,24 +153,25 @@ class KalmanFilter:
 
         """
 
-        std = torch.tensor([[
+        std = tf.constant([[
             self._std_weight_position,
             self._std_weight_position,
-            1e-1,
-            self._std_weight_position]], device=mean.device)
+            0.,
+            self._std_weight_position]], dtype=tf.float32)
+        std_back = tf.constant([[0., 0., 1e-1, 0.]], dtype=tf.float32)
 
-        std = mean[:, 3:4] * std  # (*, 4)
-        std[:, 2] = 1e-1  # (*, 4)
-
-        # (*, 4, 4)
-        innovation_cov = torch.diag_embed(torch.pow(std, 2))
-
-        # (4, 8) dot (*, 8)
-        mean = torch.mm(mean, self._update_mat)  # (*, 4)
+        std = mean[:, 3:4] * std + std_back  # (*, 4)
 
         # (*, 4, 4)
-        covariance = torch.matmul(torch.matmul(covariance.permute(0, 2, 1), self._update_mat).permute(0, 2, 1),
-                                  self._update_mat)
+        innovation_cov = tf.linalg.diag(tf.pow(std, 2))
+
+        # (*, 8) dot (8, 4)
+        mean = tf.matmul(mean, self._update_mat)  # (*, 4)
+
+        # (*, 4, 4)
+        covariance = tf.matmul(
+            tf.transpose(tf.matmul(tf.transpose(covariance, (0, 2, 1)), self._update_mat), (0, 2, 1)),
+            self._update_mat)
         return mean, covariance + innovation_cov
 
     def update(self, mean, covariance, measurement):
@@ -181,20 +196,24 @@ class KalmanFilter:
         """
 
         projected_mean, projected_cov = self.project(mean, covariance)
-        chol_factor = torch.cholesky(projected_cov, upper=False)
+        chol_factor = tf.linalg.cholesky(projected_cov)
 
         # (*, 8, 4)
-        kalman_gain = torch.cholesky_solve(torch.matmul(covariance, self._update_mat).permute(0, 2, 1),
-                                           chol_factor,
-                                           upper=False).permute(0, 2, 1)
+        kalman_gain = tf.transpose(
+            tf.linalg.cholesky_solve(
+                chol_factor,
+                tf.transpose(tf.matmul(covariance, self._update_mat), (0, 2, 1))
+            ),
+            (0, 2, 1)
+        )
 
         # (*, 4)
-        innovation = measurement.view(-1, 4) - projected_mean
+        innovation = tf.reshape(measurement, (-1, 4)) - projected_mean
 
-        kalman_gain_t = kalman_gain.permute(0, 2, 1)
-        new_mean = mean + torch.bmm(innovation.unsqueeze(1), kalman_gain_t).view(-1, 8)  # (*, 8)
-        new_covariance = covariance - torch.matmul(
-            torch.matmul(projected_cov.permute(0, 2, 1), kalman_gain_t).permute(0, 2, 1),
+        kalman_gain_t = tf.transpose(kalman_gain, (0, 2, 1))
+        new_mean = mean + tf.reshape(tf.matmul(tf.expand_dims(innovation, 1), kalman_gain_t), (-1, 8))  # (*, 8)
+        new_covariance = covariance - tf.matmul(
+            tf.transpose(tf.matmul(tf.transpose(projected_cov, (0, 2, 1)), kalman_gain_t), (0, 2, 1)),
             kalman_gain_t)
 
         return new_mean, new_covariance
@@ -233,32 +252,33 @@ class KalmanFilter:
             mean, covariance = mean[:, None, :2], covariance[:, :2, :2]
             measurements = measurements[None, :, :2]
         else:
-            mean = mean.unsqueeze(1)
-            measurements = measurements.unsqueeze(0)
+            mean = tf.expand_dims(mean, 1)
+            measurements = tf.expand_dims(measurements, 0)
 
         # (n, 4, 4)
-        cholesky_factor = torch.cholesky(covariance)
+        cholesky_factor = tf.linalg.cholesky(covariance)
         d = - mean + measurements  # (n, m, 4)
-        z = torch.triangular_solve(d.permute(0, 2, 1), cholesky_factor, upper=False)[0]
+        z = tf.linalg.triangular_solve(cholesky_factor, tf.transpose(d, (0, 2, 1)))
         # z = torch.cholesky_solve(d.permute(0, 2, 1),
         #                          cholesky_factor,
         #                          upper=False)  # (n, 4, m)
-        squared_maha = torch.sum(z ** 2, dim=1)  # (n, m)
+        squared_maha = tf.reduce_sum(z ** 2, axis=1)  # (n, m)
         return squared_maha
 
 
 if __name__ == '__main__':
     kf = KalmanFilter()
-    mean, covariance = kf.initiate(torch.tensor([10, 15, 0.5, 10]))
+    mean, covariance = kf.initiate(tf.constant([10, 15, 0.5, 10]))
+
     mean, covariance = kf.predict(mean, covariance)
-    mean, covariance = kf.update(mean, covariance, torch.tensor([12, 20, 0.6, 11]))
+    mean, covariance = kf.update(mean, covariance, tf.constant([12, 20, 0.6, 11]))
 
-    mean_2, covariance_2 = kf.initiate(torch.tensor([12, 13, 0.7, 5]))
+    mean_2, covariance_2 = kf.initiate(tf.constant([12, 13, 0.7, 5]))
     mean_2, covariance_2 = kf.predict(mean_2, covariance_2)
-    mean_2, covariance_2 = kf.update(mean_2, covariance_2, torch.tensor([13, 14, 0.7, 8]))
+    mean_2, covariance_2 = kf.update(mean_2, covariance_2, tf.constant([13, 14, 0.7, 8]))
 
-    squared_maha = kf.gating_distance(torch.cat((mean, mean_2), dim=0),
-                                      torch.cat((covariance, covariance_2), dim=0),
-                                      torch.tensor([[12, 20, 0.6, 11],
-                                                    [20, 16, 0.4, 18]]))
+    squared_maha = kf.gating_distance(tf.concat((mean, mean_2), 0),
+                                      tf.concat((covariance, covariance_2), 0),
+                                      tf.constant([[12, 20, 0.6, 11],
+                                                   [20, 16, 0.4, 18]]))
     print(squared_maha)

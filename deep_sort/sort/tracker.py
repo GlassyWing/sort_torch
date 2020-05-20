@@ -1,4 +1,4 @@
-import torch
+import tensorflow as tf
 from . import kalman_filter
 from . import linear_assignment
 from . import iou_matching
@@ -35,19 +35,19 @@ class Tracker:
 
     """
 
-    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3, device="cpu"):
+    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
         self.n_init = n_init
-        self.device = device
 
-        self.kf = kalman_filter.KalmanFilter(device=device)
+        self.kf = kalman_filter.KalmanFilter()
         self.tracks = []
         self._next_id = 1
 
     def _initiate_track(self, detection):
         mean, covariance = self.kf.initiate(detection.to_xyah())
+
         self.tracks.append(Track(
             mean, covariance, self._next_id, self.n_init, self.max_age,
             detection.feature, detection.payload))
@@ -55,9 +55,11 @@ class Tracker:
 
     def _match(self, detections):
         def gated_metric(tracks, dets, track_indices, detection_indices):
-            features = torch.stack([dets[i].feature for i in detection_indices], dim=0)
+            features = tf.stack([dets[i].feature for i in detection_indices], 0)
             targets = [tracks[i].track_id for i in track_indices]
+
             cost_matrix = self.metric.distance(features, targets)
+
             cost_matrix = linear_assignment.gate_cost_matrix(
                 self.kf, cost_matrix, tracks, dets, track_indices,
                 detection_indices)
@@ -99,22 +101,19 @@ class Tracker:
         """
         track_means = []
         track_covs = []
-        device = "cpu"
         for track in self.tracks:
-            track_means.append(track.mean.cpu())
-            track_covs.append(track.covariance.cpu())
+            track_means.append(track.mean)
+            track_covs.append(track.covariance)
 
-            # get origin device
-            device = track.mean.device
 
         if len(self.tracks) != 0:
-            track_means = torch.cat(track_means, dim=0).to(device)
-            track_covs = torch.cat(track_covs, dim=0).to(device)
+            track_means = tf.concat(track_means, 0)
+            track_covs = tf.concat(track_covs, 0)
             updated_means, updated_covs = self.kf.predict(track_means, track_covs)
 
             for i, track in enumerate(self.tracks):
-                track.predict(updated_means[i].unsqueeze(0),
-                              updated_covs[i].unsqueeze(0))
+                track.predict(tf.expand_dims(updated_means[i], 0),
+                              tf.expand_dims(updated_covs[i], 0))
 
     def update(self, detections):
         """Perform measurement update and track management.
@@ -135,29 +134,25 @@ class Tracker:
             matched_track_covs = []
             matched_measures = []
 
-            device = "cpu"
             for track_idx, detection_idx in matches:
                 track = self.tracks[track_idx]
                 detection = detections[detection_idx]
-                matched_track_means.append(track.mean.cpu())
-                matched_track_covs.append(track.covariance.cpu())
+                matched_track_means.append(track.mean)
+                matched_track_covs.append(track.covariance)
                 matched_measures.append(detection.to_xyah())
 
-                # get origin device
-                device = track.mean.device
-
             # Combine on cpu, calculate on gpu (If not, will throw magic cuda error)
-            matched_track_means = torch.cat(matched_track_means, dim=0).to(device)
-            matched_track_covs = torch.cat(matched_track_covs, dim=0).to(device)
-            matched_measures = torch.stack(matched_measures, dim=0)
+            matched_track_means = tf.concat(matched_track_means, 0)
+            matched_track_covs = tf.concat(matched_track_covs, 0)
+            matched_measures = tf.concat(matched_measures, 0)
 
             # Make the most of the GPU
             updated_means, updated_covs = self.kf.update(matched_track_means, matched_track_covs, matched_measures)
             for i, (track_idx, detection_idx) in enumerate(matches):
                 track = self.tracks[track_idx]
                 detection = detections[detection_idx]
-                track.update(updated_means[i].unsqueeze(0),
-                             updated_covs[i].unsqueeze(0),
+                track.update(tf.expand_dims(updated_means[i], 0),
+                             tf.expand_dims(updated_covs[i], 0),
                              detection.feature,
                              detection.payload)
 

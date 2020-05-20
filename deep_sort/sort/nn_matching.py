@@ -1,4 +1,4 @@
-import torch
+import tensorflow as tf
 
 
 def _pdist(a, b):
@@ -19,12 +19,12 @@ def _pdist(a, b):
 
     """
     if len(a) == 0 or len(b) == 0:
-        return torch.zeros(len(a), len(b), dtype=a.dtype, device=a.device)
+        return tf.zeros((len(a), len(b)), dtype=a.dtype)
 
     a = a[:, None, :]
     b = b[None, :, :]
 
-    return torch.sum(torch.pow(a - b, 2), dim=-1)
+    return tf.reduce_sum(tf.pow(a - b, 2), -1)
 
 
 def _cosine_distance(a, b, data_is_normalized=False):
@@ -48,9 +48,9 @@ def _cosine_distance(a, b, data_is_normalized=False):
 
     """
     if not data_is_normalized:
-        a = a / torch.norm(a, dim=-1, keepdim=True)
-        b = b / torch.norm(b, dim=-1, keepdim=True)
-    return 1. - torch.mm(a, b.t())
+        a = a / tf.norm(a, axis=-1, keepdims=True)
+        b = b / tf.norm(b, axis=-1, keepdims=True)
+    return 1. - tf.matmul(a, tf.transpose(b))
 
 
 def _nn_euclidean_distance(x, y):
@@ -71,7 +71,7 @@ def _nn_euclidean_distance(x, y):
 
     """
     distances = _pdist(x, y)
-    return torch.clamp_max(distances.min(dim=0)[0], max=0.0)
+    return tf.reduce_sum(distances, axis=0)
 
 
 def _nn_cosine_distance(x, y):
@@ -92,7 +92,7 @@ def _nn_cosine_distance(x, y):
 
     """
     distances = _cosine_distance(x, y)
-    return distances.min(dim=0)[0]
+    return tf.reduce_sum(distances, axis=0)
 
 
 class NearestNeighborDistanceMetric:
@@ -170,6 +170,6 @@ class NearestNeighborDistanceMetric:
         """
         cost_matrix = []
         for i, target in enumerate(targets):
-            cost_matrix.append(self._metric(torch.stack(self.samples[target], dim=0),
+            cost_matrix.append(self._metric(tf.stack(self.samples[target], 0),
                                             features))
-        return torch.stack(cost_matrix, dim=0)
+        return tf.stack(cost_matrix, 0)

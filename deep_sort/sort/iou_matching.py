@@ -1,4 +1,5 @@
-import torch
+import tensorflow as tf
+import numpy as np
 from .linear_assignment import INFTY_COST
 
 
@@ -22,18 +23,18 @@ def iou(bbox, candidates):
 
     """
 
-    bbox = bbox.reshape(-1, 1, 4)  # (n, 1, 4)
-    candidates = candidates.unsqueeze(0)  # (1, m, 4)
+    bbox = tf.reshape(bbox, (-1, 1, 4))  # (n, 1, 4)
+    candidates = tf.expand_dims(candidates, 0)  # (1, m, 4)
     bbox_mins = bbox[..., :2]
     bbox_maxes = bbox[..., :2] + bbox[..., 2:]
 
     candidates_mins = candidates[..., :2]
     candidates_maxes = candidates[..., 2:] + candidates[..., :2]
 
-    inter_mins = torch.max(bbox_mins, candidates_mins)  # (n, m, 2)
-    inter_maxes = torch.min(bbox_maxes, candidates_maxes)  # (n, m, 2)
+    inter_mins = tf.maximum(bbox_mins, candidates_mins)  # (n, m, 2)
+    inter_maxes = tf.minimum(bbox_maxes, candidates_maxes)  # (n, m, 2)
 
-    inter_wh = torch.clamp(inter_maxes - inter_mins + 1, min=0)  # (n, m, 2)
+    inter_wh = tf.minimum(inter_maxes - inter_mins + 1, 0)  # (n, m, 2)
     inter_area = inter_wh[..., 0] * inter_wh[..., 1]  # (n, m)
     bbox_area = bbox[..., 2] * bbox[..., 3]  # (n, m)
     candidates_area = candidates[..., 2] * candidates[..., 3]  # (n, m)
@@ -74,12 +75,12 @@ def iou_cost(tracks, detections, track_indices=None, detection_indices=None):
     candidates = []
     for i in detection_indices:
         candidates.append(detections[i].tlwh)
-    candidates = torch.stack(candidates, dim=0)  # (m, 4)
+    candidates = tf.stack(candidates, 0)  # (m, 4)
 
     bboxes = []
     for track_idx in track_indices:
         bboxes.append(tracks[track_idx].to_tlwh())
-    bboxes = torch.stack(bboxes, dim=0)  # (n, 4)
+    bboxes = tf.stack(bboxes, 0)  # (n, 4)
 
     cost_matrix = 1. - iou(bboxes, candidates)
 
@@ -88,4 +89,4 @@ def iou_cost(tracks, detections, track_indices=None, detection_indices=None):
             cost_matrix[row, :] = INFTY_COST
             continue
 
-    return cost_matrix
+    return cost_matrix.numpy()

@@ -1,3 +1,5 @@
+import tensorflow as tf
+
 class TrackState:
     """
     Enumeration type for the single target track state. Newly created tracks are
@@ -88,10 +90,8 @@ class Track:
             The bounding box.
 
         """
-        ret = self.mean.flatten()[:4].clone()
-        ret[2] *= ret[3]
-        ret[:2] -= ret[2:] / 2
-        return ret
+        ret = tf.identity(self.mean[0, :4])
+        return tf.concat((ret[0] - ret[2] / 2, ret[1] - ret[3] / 2, ret[2] * ret[3], ret[3]), 0)
 
     def to_tlbr(self):
         """Get current position in bounding box format `(min x, miny, max x,
@@ -104,8 +104,7 @@ class Track:
 
         """
         ret = self.to_tlwh()
-        ret[2:] = ret[:2] + ret[2:]
-        return ret
+        return tf.concat((ret[:2], ret[:2] + ret[2:]), -1)
 
     def predict(self, mean, covariance):
         """Propagate the state distribution to the current time step using a
