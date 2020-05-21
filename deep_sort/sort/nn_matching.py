@@ -71,7 +71,7 @@ def _nn_euclidean_distance(x, y):
 
     """
     distances = _pdist(x, y)
-    return torch.clamp_max(distances.min(dim=0)[0], max=0.0)
+    return torch.clamp(distances.min(dim=0)[0], min=0.0)
 
 
 def _nn_cosine_distance(x, y):

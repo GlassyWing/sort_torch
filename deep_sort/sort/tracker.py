@@ -99,17 +99,13 @@ class Tracker:
         """
         track_means = []
         track_covs = []
-        device = "cpu"
         for track in self.tracks:
-            track_means.append(track.mean.cpu())
-            track_covs.append(track.covariance.cpu())
-
-            # get origin device
-            device = track.mean.device
+            track_means.append(track.mean)
+            track_covs.append(track.covariance)
 
         if len(self.tracks) != 0:
-            track_means = torch.cat(track_means, dim=0).to(device)
-            track_covs = torch.cat(track_covs, dim=0).to(device)
+            track_means = torch.cat(track_means, dim=0)
+            track_covs = torch.cat(track_covs, dim=0)
             updated_means, updated_covs = self.kf.predict(track_means, track_covs)
 
             for i, track in enumerate(self.tracks):
@@ -135,20 +131,15 @@ class Tracker:
             matched_track_covs = []
             matched_measures = []
 
-            device = "cpu"
             for track_idx, detection_idx in matches:
                 track = self.tracks[track_idx]
                 detection = detections[detection_idx]
-                matched_track_means.append(track.mean.cpu())
-                matched_track_covs.append(track.covariance.cpu())
+                matched_track_means.append(track.mean)
+                matched_track_covs.append(track.covariance)
                 matched_measures.append(detection.to_xyah())
 
-                # get origin device
-                device = track.mean.device
-
-            # Combine on cpu, calculate on gpu (If not, will throw magic cuda error)
-            matched_track_means = torch.cat(matched_track_means, dim=0).to(device)
-            matched_track_covs = torch.cat(matched_track_covs, dim=0).to(device)
+            matched_track_means = torch.cat(matched_track_means, dim=0)
+            matched_track_covs = torch.cat(matched_track_covs, dim=0)
             matched_measures = torch.stack(matched_measures, dim=0)
 
             # Make the most of the GPU

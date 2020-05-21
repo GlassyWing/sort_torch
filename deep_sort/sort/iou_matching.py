@@ -22,7 +22,7 @@ def iou(bbox, candidates):
 
     """
 
-    bbox = bbox.reshape(-1, 1, 4)  # (n, 1, 4)
+    bbox = bbox.unsqueeze(1)  # (n, 1, 4)
     candidates = candidates.unsqueeze(0)  # (1, m, 4)
     bbox_mins = bbox[..., :2]
     bbox_maxes = bbox[..., :2] + bbox[..., 2:]
