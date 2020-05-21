@@ -181,12 +181,17 @@ class KalmanFilter:
         """
 
         projected_mean, projected_cov = self.project(mean, covariance)
-        chol_factor = torch.cholesky(projected_cov, upper=False)
 
-        # (*, 8, 4)
-        kalman_gain = torch.cholesky_solve(torch.matmul(covariance, self._update_mat).permute(0, 2, 1),
-                                           chol_factor,
-                                           upper=False).permute(0, 2, 1)
+        # Unfortunately, cholesky will randomly throw CUDA ERROR under linux GPU environment,
+        # this error is from pytorch1.2 to 1.5
+        # chol_factor = torch.cholesky(projected_cov, upper=False)
+        # kalman_gain = torch.cholesky_solve(torch.matmul(covariance, self._update_mat).permute(0, 2, 1),
+        #                                    chol_factor,
+        #                                    upper=False).permute(0, 2, 1)
+
+        # The alternative solution is theoretically slower than cholesky_solve
+        kalman_gain = torch.solve(torch.matmul(covariance, self._update_mat).permute(0, 2, 1), projected_cov)[
+            0].permute(0, 2, 1)
 
         # (*, 4)
         innovation = measurement.view(-1, 4) - projected_mean
@@ -236,14 +241,19 @@ class KalmanFilter:
             mean = mean.unsqueeze(1)
             measurements = measurements.unsqueeze(0)
 
-        # (n, 4, 4)
-        cholesky_factor = torch.cholesky(covariance)
         d = - mean + measurements  # (n, m, 4)
-        z = torch.triangular_solve(d.permute(0, 2, 1), cholesky_factor, upper=False)[0]
-        # z = torch.cholesky_solve(d.permute(0, 2, 1),
-        #                          cholesky_factor,
-        #                          upper=False)  # (n, 4, m)
-        squared_maha = torch.sum(z ** 2, dim=1)  # (n, m)
+
+        # Unfortunately, cholesky will randomly throw CUDA ERROR under linux GPU environment,
+        # this error is from pytorch1.2 to 1.5
+
+        # cholesky_factor = torch.cholesky(covariance)
+        # z = torch.triangular_solve(d.permute(0, 2, 1), cholesky_factor, upper=False)[0]
+        # squared_maha = torch.sum(z ** 2, dim=1)  # (n, m)
+
+        # The alternative solution is theoretically slower than cholesky_solve
+        squared_maha = torch.bmm(torch.bmm(d, torch.inverse(covariance)), d.permute(0, 2, 1))
+        squared_maha = torch.diagonal(squared_maha, dim1=-2, dim2=-1)
+
         return squared_maha
 
 
