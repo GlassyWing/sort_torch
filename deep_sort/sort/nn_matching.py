@@ -71,7 +71,7 @@ def _nn_euclidean_distance(x, y):
 
     """
     distances = _pdist(x, y)
-    return tf.reduce_sum(distances, axis=0)
+    return tf.reduce_min(distances, axis=0)
 
 
 def _nn_cosine_distance(x, y):
@@ -92,7 +92,7 @@ def _nn_cosine_distance(x, y):
 
     """
     distances = _cosine_distance(x, y)
-    return tf.reduce_sum(distances, axis=0)
+    return tf.reduce_min(distances, axis=0)
 
 
 class NearestNeighborDistanceMetric:

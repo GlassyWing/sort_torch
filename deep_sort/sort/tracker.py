@@ -58,8 +58,7 @@ class Tracker:
             features = tf.stack([dets[i].feature for i in detection_indices], 0)
             targets = [tracks[i].track_id for i in track_indices]
 
-            cost_matrix = self.metric.distance(features, targets)
-
+            cost_matrix = self.metric.distance(features, targets).numpy()
             cost_matrix = linear_assignment.gate_cost_matrix(
                 self.kf, cost_matrix, tracks, dets, track_indices,
                 detection_indices)
@@ -104,7 +103,6 @@ class Tracker:
         for track in self.tracks:
             track_means.append(track.mean)
             track_covs.append(track.covariance)
-
 
         if len(self.tracks) != 0:
             track_means = tf.concat(track_means, 0)

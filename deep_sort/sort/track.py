@@ -91,7 +91,8 @@ class Track:
 
         """
         ret = tf.identity(self.mean[0, :4])
-        return tf.concat((ret[0] - ret[2] / 2, ret[1] - ret[3] / 2, ret[2] * ret[3], ret[3]), 0)
+        ret_2 = ret[2] * ret[3]
+        return tf.concat((ret[0] - ret_2 / 2, ret[1] - ret[3] / 2, ret_2, ret[3]), 0)
 
     def to_tlbr(self):
         """Get current position in bounding box format `(min x, miny, max x,
@@ -104,7 +105,7 @@ class Track:
 
         """
         ret = self.to_tlwh()
-        return tf.concat((ret[:2], ret[:2] + ret[2:]), -1)
+        return tf.concat((ret[:2], ret[:2] + ret[2:]), 0)
 
     def predict(self, mean, covariance):
         """Propagate the state distribution to the current time step using a

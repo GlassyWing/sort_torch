@@ -23,7 +23,7 @@ def iou(bbox, candidates):
 
     """
 
-    bbox = tf.reshape(bbox, (-1, 1, 4))  # (n, 1, 4)
+    bbox = tf.expand_dims(bbox, 1)  # (n, 1, 4)
     candidates = tf.expand_dims(candidates, 0)  # (1, m, 4)
     bbox_mins = bbox[..., :2]
     bbox_maxes = bbox[..., :2] + bbox[..., 2:]
@@ -34,7 +34,7 @@ def iou(bbox, candidates):
     inter_mins = tf.maximum(bbox_mins, candidates_mins)  # (n, m, 2)
     inter_maxes = tf.minimum(bbox_maxes, candidates_maxes)  # (n, m, 2)
 
-    inter_wh = tf.minimum(inter_maxes - inter_mins + 1, 0)  # (n, m, 2)
+    inter_wh = tf.maximum(inter_maxes - inter_mins + 1, 0)  # (n, m, 2)
     inter_area = inter_wh[..., 0] * inter_wh[..., 1]  # (n, m)
     bbox_area = bbox[..., 2] * bbox[..., 3]  # (n, m)
     candidates_area = candidates[..., 2] * candidates[..., 3]  # (n, m)
@@ -85,8 +85,10 @@ def iou_cost(tracks, detections, track_indices=None, detection_indices=None):
     cost_matrix = 1. - iou(bboxes, candidates)
 
     for row, track_idx in enumerate(track_indices):
+
         if tracks[track_idx].time_since_update > 1:
             cost_matrix[row, :] = INFTY_COST
             continue
 
     return cost_matrix.numpy()
+

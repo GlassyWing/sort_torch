@@ -187,8 +187,8 @@ def gate_cost_matrix(
         covariances.append(track.covariance)
 
     # Then copy to gpu
-    means = tf.concat(means, dim=0)
-    covariances = tf.concat(covariances, dim=0)
+    means = tf.concat(means, 0)
+    covariances = tf.concat(covariances, 0)
 
     # The calculation takes place on the GPU
     gating_distance = kf.gating_distance(means, covariances, measurements, only_position)
