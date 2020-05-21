@@ -13,8 +13,7 @@ __all__ = ['DeepSort']
 class DeepSort(object):
     def __init__(self, model_path, max_dist=0.2, min_confidence=0.3, nms_max_overlap=1.0, max_iou_distance=0.7,
                  max_age=70, n_init=3, nn_budget=100,
-                 extractor_device="cpu",
-                 tracker_device="cpu"):
+                 use_cuda=False):
         self.max_dist = max_dist
         self.min_confidence = min_confidence
         self.nms_max_overlap = nms_max_overlap
@@ -22,11 +21,10 @@ class DeepSort(object):
         self.max_age = max_age
         self.n_init = n_init
         self.nn_budget = nn_budget
-        self.extractor_device = extractor_device
-        self.tracker_device = tracker_device
+        self.use_cuda = use_cuda
 
         if type(model_path) == str:
-            self.extractor = Extractor(model_path, use_cuda=extractor_device)
+            self.extractor = Extractor(model_path, use_cuda=use_cuda)
         else:
             self.extractor = model_path
 
@@ -36,19 +34,18 @@ class DeepSort(object):
                                max_iou_distance=max_iou_distance,
                                max_age=max_age,
                                n_init=n_init,
-                               device=tracker_device)
+                               use_cuda=use_cuda)
 
     def clone(self):
         return DeepSort(self.extractor, self.max_dist, self.min_confidence, self.nms_max_overlap, self.max_iou_distance,
                         self.max_age, self.n_init, self.nn_budget,
-                        self.extractor_device,
-                        self.tracker_device)
+                        self.use_cuda)
 
     def update(self, bbox_xywh, confidences, ori_img, payload):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
-        bbox_tlwh = bbox_xywh.to(self.tracker_device)
+        bbox_tlwh = bbox_xywh.to(self.tracker.device)
         detections = [Detection(bbox_tlwh[i], conf, features[i], payload[i]) for i, conf in enumerate(confidences) if
                       conf > self.min_confidence]
 
@@ -121,7 +118,7 @@ class DeepSort(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            features = self.extractor(im_crops).to(self.tracker_device)
+            features = self.extractor(im_crops).to(self.tracker.device)
         else:
             features = np.array([])
         return features

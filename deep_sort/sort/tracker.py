@@ -35,14 +35,14 @@ class Tracker:
 
     """
 
-    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3, device="cpu"):
+    def __init__(self, metric, max_iou_distance=0.7, max_age=70, n_init=3, use_cuda=False):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
         self.n_init = n_init
-        self.device = device
+        self.device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
 
-        self.kf = kalman_filter.KalmanFilter(device=device)
+        self.kf = kalman_filter.KalmanFilter(self.device)
         self.tracks = []
         self._next_id = 1
 
