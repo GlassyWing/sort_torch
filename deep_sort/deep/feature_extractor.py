@@ -44,7 +44,7 @@ class Extractor(object):
         with torch.no_grad():
             im_batch = im_batch.to(self.device)
             features = self.net(im_batch)
-        return features
+        return features.cpu().numpy()
 
 
 if __name__ == '__main__':

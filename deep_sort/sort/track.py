@@ -1,3 +1,6 @@
+# vim: expandtab:ts=4:sw=4
+
+
 class TrackState:
     """
     Enumeration type for the single target track state. Newly created tracks are
@@ -62,8 +65,8 @@ class Track:
 
     def __init__(self, mean, covariance, track_id, n_init, max_age,
                  feature=None, payload=None):
-        self.mean = mean  # (1, 8)
-        self.covariance = covariance  # (1, 8, 8)
+        self.mean = mean
+        self.covariance = covariance
         self.track_id = track_id
         self.hits = 1
         self.age = 1
@@ -88,7 +91,7 @@ class Track:
             The bounding box.
 
         """
-        ret = self.mean.flatten()[:4].clone()
+        ret = self.mean[:4].copy()
         ret[2] *= ret[3]
         ret[:2] -= ret[2:] / 2
         return ret
@@ -107,41 +110,40 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
-    def predict(self, mean, covariance):
+    def predict(self, kf):
         """Propagate the state distribution to the current time step using a
         Kalman filter prediction step.
 
         Parameters
         ----------
-        mean : new mean
-        covariance: new covariance
+        kf : kalman_filter.KalmanFilter
+            The Kalman filter.
 
         """
-        self.mean = mean
-        self.covariance = covariance
+        self.mean, self.covariance = kf.predict(self.mean, self.covariance)
         self.age += 1
         self.time_since_update += 1
 
-    def update(self, mean, covariance, feature, payload=None):
+    def update(self, kf, detection):
         """Perform Kalman filter measurement update step and update the feature
         cache.
 
         Parameters
         ----------
-        mean : new mean
-        covariance : new covariance
-        feature: new feature to be hold
-        payload: additional payload
-        """
+        kf : kalman_filter.KalmanFilter
+            The Kalman filter.
+        detection : Detection
+            The associated detection.
 
-        self.mean = mean
-        self.covariance = covariance
-        self.features.append(feature)
+        """
+        self.mean, self.covariance = kf.update(
+            self.mean, self.covariance, detection.to_xyah())
+        self.features.append(detection.feature)
+
         self.hits += 1
         self.time_since_update = 0
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
-        self.payload = payload
 
     def mark_missed(self):
         """Mark this track as missed (no association at the current time step).

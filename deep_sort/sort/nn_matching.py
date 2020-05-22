@@ -1,4 +1,5 @@
-import torch
+# vim: expandtab:ts=4:sw=4
+import numpy as np
 
 
 def _pdist(a, b):
@@ -18,13 +19,13 @@ def _pdist(a, b):
         contains the squared distance between `a[i]` and `b[j]`.
 
     """
+    a, b = np.asarray(a), np.asarray(b)
     if len(a) == 0 or len(b) == 0:
-        return torch.zeros(len(a), len(b), dtype=a.dtype, device=a.device)
-
-    a = a[:, None, :]
-    b = b[None, :, :]
-
-    return torch.sum(torch.pow(a - b, 2), dim=-1)
+        return np.zeros((len(a), len(b)))
+    a2, b2 = np.square(a).sum(axis=1), np.square(b).sum(axis=1)
+    r2 = -2. * np.dot(a, b.T) + a2[:, None] + b2[None, :]
+    r2 = np.clip(r2, 0., float(np.inf))
+    return r2
 
 
 def _cosine_distance(a, b, data_is_normalized=False):
@@ -48,9 +49,9 @@ def _cosine_distance(a, b, data_is_normalized=False):
 
     """
     if not data_is_normalized:
-        a = a / torch.norm(a, dim=-1, keepdim=True)
-        b = b / torch.norm(b, dim=-1, keepdim=True)
-    return 1. - torch.mm(a, b.t())
+        a = np.asarray(a) / np.linalg.norm(a, axis=1, keepdims=True)
+        b = np.asarray(b) / np.linalg.norm(b, axis=1, keepdims=True)
+    return 1. - np.dot(a, b.T)
 
 
 def _nn_euclidean_distance(x, y):
@@ -71,7 +72,7 @@ def _nn_euclidean_distance(x, y):
 
     """
     distances = _pdist(x, y)
-    return torch.clamp(distances.min(dim=0)[0], min=0.0)
+    return np.maximum(0.0, distances.min(axis=0))
 
 
 def _nn_cosine_distance(x, y):
@@ -92,10 +93,10 @@ def _nn_cosine_distance(x, y):
 
     """
     distances = _cosine_distance(x, y)
-    return distances.min(dim=0)[0]
+    return distances.min(axis=0)
 
 
-class NearestNeighborDistanceMetric:
+class NearestNeighborDistanceMetric(object):
     """
     A nearest neighbor distance metric that, for each target, returns
     the closest distance to any sample that has been observed so far.
@@ -120,6 +121,8 @@ class NearestNeighborDistanceMetric:
     """
 
     def __init__(self, metric, matching_threshold, budget=None):
+
+
         if metric == "euclidean":
             self._metric = _nn_euclidean_distance
         elif metric == "cosine":
@@ -168,8 +171,7 @@ class NearestNeighborDistanceMetric:
             `targets[i]` and `features[j]`.
 
         """
-        cost_matrix = []
+        cost_matrix = np.zeros((len(targets), len(features)))
         for i, target in enumerate(targets):
-            cost_matrix.append(self._metric(torch.stack(self.samples[target], dim=0),
-                                            features))
-        return torch.stack(cost_matrix, dim=0)
+            cost_matrix[i, :] = self._metric(self.samples[target], features)
+        return cost_matrix

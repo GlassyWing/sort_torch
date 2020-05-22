@@ -1,10 +1,11 @@
 import numpy as np
 import torch
+from torchvision.ops.boxes import batched_nms
 
 from .deep.feature_extractor import Extractor
-from .sort.detection import Detection
 from .sort.nn_matching import NearestNeighborDistanceMetric
 from .sort.preprocessing import non_max_suppression
+from .sort.detection import Detection
 from .sort.tracker import Tracker
 
 __all__ = ['DeepSort']
@@ -12,8 +13,7 @@ __all__ = ['DeepSort']
 
 class DeepSort(object):
     def __init__(self, model_path, max_dist=0.2, min_confidence=0.3, nms_max_overlap=1.0, max_iou_distance=0.7,
-                 max_age=70, n_init=3, nn_budget=100,
-                 use_cuda=False):
+                 max_age=70, n_init=3, nn_budget=100, use_cuda=True):
         self.max_dist = max_dist
         self.min_confidence = min_confidence
         self.nms_max_overlap = nms_max_overlap
@@ -30,22 +30,17 @@ class DeepSort(object):
 
         max_cosine_distance = max_dist
         metric = NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-        self.tracker = Tracker(metric,
-                               max_iou_distance=max_iou_distance,
-                               max_age=max_age,
-                               n_init=n_init,
-                               use_cuda=use_cuda)
+        self.tracker = Tracker(metric, max_iou_distance=max_iou_distance, max_age=max_age, n_init=n_init)
 
     def clone(self):
         return DeepSort(self.extractor, self.max_dist, self.min_confidence, self.nms_max_overlap, self.max_iou_distance,
-                        self.max_age, self.n_init, self.nn_budget,
-                        self.use_cuda)
+                        self.max_age, self.n_init, self.nn_budget, self.use_cuda)
 
     def update(self, bbox_xywh, confidences, ori_img, payload):
         self.height, self.width = ori_img.shape[:2]
         # generate detections
         features = self._get_features(bbox_xywh, ori_img)
-        bbox_tlwh = bbox_xywh.to(self.tracker.device)
+        bbox_tlwh = bbox_xywh
         detections = [Detection(bbox_tlwh[i], conf, features[i], payload[i]) for i, conf in enumerate(confidences) if
                       conf > self.min_confidence]
 
@@ -74,6 +69,12 @@ class DeepSort(object):
             outputs = np.stack(outputs, axis=0)
         return outputs
 
+    """
+    TODO:
+        Convert bbox from xc_yc_w_h to xtl_ytl_w_h
+    Thanks JieChen91@github.com for reporting this bug!
+    """
+
     @staticmethod
     def _xywh_to_tlwh(bbox_xywh):
         if isinstance(bbox_xywh, np.ndarray):
@@ -94,6 +95,9 @@ class DeepSort(object):
 
     def _tlwh_to_xyxy(self, bbox_tlwh):
         """
+        TODO:
+            Convert bbox from xtl_ytl_w_h to xc_yc_w_h
+        Thanks JieChen91@github.com for reporting this bug!
         """
         x, y, w, h = bbox_tlwh
         x1 = max(int(x), 0)
@@ -118,7 +122,7 @@ class DeepSort(object):
             im = ori_img[y1:y2, x1:x2]
             im_crops.append(im)
         if im_crops:
-            features = self.extractor(im_crops).to(self.tracker.device)
+            features = self.extractor(im_crops)
         else:
             features = np.array([])
         return features
