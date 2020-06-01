@@ -116,24 +116,30 @@ def matching_cascade(distance_metric, max_distance, cascade_depth, tracks, detec
         detection_indices = list(range(len(detections)))
 
     unmatched_detections = detection_indices
-    matches = []
-    for level in range(cascade_depth):
-        if len(unmatched_detections) == 0:  # No detections left
-            break
+    # matches = []
+    # for level in range(cascade_depth):
+    #     if len(unmatched_detections) == 0:  # No detections left
+    #         break
+    #
+    #     track_indices_l = [
+    #         k for k in track_indices
+    #         if tracks[k].time_since_update == 1 + level
+    #     ]
+    #     if len(track_indices_l) == 0:  # Nothing to match at this level
+    #         continue
+    #
+    #     matches_l, _, unmatched_detections = \
+    #         min_cost_matching(
+    #             distance_metric, max_distance, tracks, detections,
+    #             track_indices_l, unmatched_detections)
+    #     matches += matches_l
+    # unmatched_tracks = list(set(track_indices) - set(k for k, _ in matches))
 
-        track_indices_l = [
-            k for k in track_indices
-            if tracks[k].time_since_update == 1 + level
-        ]
-        if len(track_indices_l) == 0:  # Nothing to match at this level
-            continue
+    matches, unmatched_tracks, unmatched_detections = \
+        min_cost_matching(
+            distance_metric, max_distance, tracks, detections,
+            track_indices, unmatched_detections)
 
-        matches_l, _, unmatched_detections = \
-            min_cost_matching(
-                distance_metric, max_distance, tracks, detections,
-                track_indices_l, unmatched_detections)
-        matches += matches_l
-    unmatched_tracks = list(set(track_indices) - set(k for k, _ in matches))
     return matches, unmatched_tracks, unmatched_detections
 
 
@@ -176,7 +182,10 @@ def gate_cost_matrix(
     """
     gating_dim = 2 if only_position else 4
     gating_threshold = kalman_filter.chi2inv95[gating_dim]
-    measurements = torch.stack([detections[i].to_xyah() for i in detection_indices], dim=0)
+    measurements = torch.stack([detections[i].tlwh for i in detection_indices], dim=0)
+
+    measurements[:, :2] += measurements[:, 2:] / 2
+    measurements[:, 2] /= measurements[:, 3]
 
     means = []
     covariances = []

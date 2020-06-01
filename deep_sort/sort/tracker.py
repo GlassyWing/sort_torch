@@ -136,11 +136,14 @@ class Tracker:
                 detection = detections[detection_idx]
                 matched_track_means.append(track.mean)
                 matched_track_covs.append(track.covariance)
-                matched_measures.append(detection.to_xyah())
+                matched_measures.append(detection.tlwh)
 
             matched_track_means = torch.cat(matched_track_means, dim=0)
             matched_track_covs = torch.cat(matched_track_covs, dim=0)
             matched_measures = torch.stack(matched_measures, dim=0)
+
+            matched_measures[:, :2] += matched_measures[:, 2:] / 2
+            matched_measures[:, 2] /= matched_measures[:, 3]
 
             # Make the most of the GPU
             updated_means, updated_covs = self.kf.update(matched_track_means, matched_track_covs, matched_measures)

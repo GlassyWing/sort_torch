@@ -53,7 +53,7 @@ def _cosine_distance(a, b, data_is_normalized=False):
     return 1. - torch.mm(a, b.t())
 
 
-def _nn_euclidean_distance(x, y):
+def _nn_euclidean_distance(x, y, bp):
     """ Helper function for nearest neighbor distance metric (Euclidean).
 
     Parameters
@@ -71,10 +71,13 @@ def _nn_euclidean_distance(x, y):
 
     """
     distances = _pdist(x, y)
-    return torch.clamp(distances.min(dim=0)[0], min=0.0)
+    final_distances = []
+    for i in range(len(bp) - 1):
+        final_distances.append(distances[bp[i]:bp[i + 1]].min(dim=0)[0])
+    return torch.stack(final_distances, dim=0)
 
 
-def _nn_cosine_distance(x, y):
+def _nn_cosine_distance(x, y, bp):
     """ Helper function for nearest neighbor distance metric (cosine).
 
     Parameters
@@ -92,7 +95,12 @@ def _nn_cosine_distance(x, y):
 
     """
     distances = _cosine_distance(x, y)
-    return distances.min(dim=0)[0]
+
+    final_distances = []
+    for i in range(len(bp) - 1):
+        final_distances.append(distances[bp[i]:bp[i + 1]].min(dim=0)[0])
+
+    return torch.stack(final_distances, dim=0)
 
 
 class NearestNeighborDistanceMetric:
@@ -168,8 +176,15 @@ class NearestNeighborDistanceMetric:
             `targets[i]` and `features[j]`.
 
         """
-        cost_matrix = []
+        bp = [0]
+
+        samples = []
         for i, target in enumerate(targets):
-            cost_matrix.append(self._metric(torch.stack(self.samples[target], dim=0),
-                                            features))
-        return torch.stack(cost_matrix, dim=0)
+            sample = self.samples[target]
+            samples += sample
+            bp.append(bp[-1] + len(sample))
+
+        # Samples for all targets
+        samples = torch.stack(samples, dim=0)
+
+        return self._metric(samples, features, bp)

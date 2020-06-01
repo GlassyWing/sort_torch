@@ -31,8 +31,6 @@ class Extractor(object):
 
         result = []
         for im in im_crops:
-            im = torch.from_numpy(im.astype(np.uint8)).to(self.device)
-            im = im.permute((2, 0, 1)) / 255.
             im = F.interpolate(self.__norm(im).unsqueeze(0), size=(self.size[1], self.size[0]), mode="nearest")
             result.append(im)
 

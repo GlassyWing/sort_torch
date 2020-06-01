@@ -9,7 +9,8 @@ chi2inv95 = {
     1: 3.8415,
     2: 5.9915,
     3: 7.8147,
-    4: 9.4877,
+    # 4: 9.4877,
+    4: 11.070,
     5: 11.070,
     6: 12.592,
     7: 14.067,
@@ -38,6 +39,18 @@ class KalmanFilter:
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
         self._std_weight_velocity = 1. / 160
+
+        self._std_pos = torch.tensor([[
+            self._std_weight_position,
+            self._std_weight_position,
+            0,
+            self._std_weight_position]], device=self._device)
+
+        self._std_vel = torch.tensor([[
+            self._std_weight_velocity,
+            self._std_weight_velocity,
+            0,
+            self._std_weight_velocity]], device=self._device)
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -94,19 +107,8 @@ class KalmanFilter:
 
         """
 
-        std_pos = torch.tensor([[
-            self._std_weight_position,
-            self._std_weight_position,
-            1e-2,
-            self._std_weight_position]], device=mean.device)
-        std_vel = torch.tensor([[
-            self._std_weight_velocity,
-            self._std_weight_velocity,
-            1e-5,
-            self._std_weight_velocity]], device=mean.device)
-
-        std_pos = mean[:, 3:4] * std_pos
-        std_vel = mean[:, 3:4] * std_vel
+        std_pos = mean[:, 3:4] * self._std_pos
+        std_vel = mean[:, 3:4] * self._std_vel
 
         std_pos[:, 2] = 1e-2
         std_vel[:, 2] = 1e-5
@@ -139,13 +141,7 @@ class KalmanFilter:
 
         """
 
-        std = torch.tensor([[
-            self._std_weight_position,
-            self._std_weight_position,
-            1e-1,
-            self._std_weight_position]], device=mean.device)
-
-        std = mean[:, 3:4] * std  # (*, 4)
+        std = mean[:, 3:4] * self._std_pos  # (*, 4)
         std[:, 2] = 1e-1  # (*, 4)
 
         # (*, 4, 4)
